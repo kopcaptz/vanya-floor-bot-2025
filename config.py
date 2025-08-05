@@ -6,8 +6,8 @@ load_dotenv()
 # Telegram Bot Configuration
 BOT_TOKEN = "8346136918:AAHwREKIctQJSuWWBySju7naWT_FiDdJBwo"
 
-# OpenAI Configuration
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+# Anthropic Configuration
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
 
 # File Upload Configuration
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
