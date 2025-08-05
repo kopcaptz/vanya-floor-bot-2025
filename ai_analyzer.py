@@ -1,25 +1,25 @@
-import openai
+import anthropic
 import base64
 import json
 import logging
 from typing import Dict, List, Optional
-from config import OPENAI_API_KEY
+from config import ANTHROPIC_API_KEY
 
 logger = logging.getLogger(__name__)
 
 class FloorAnalyzer:
-    def __init__(self, api_key: str = OPENAI_API_KEY):
+    def __init__(self, api_key: str = ANTHROPIC_API_KEY):
         if not api_key:
             # Используем переменную окружения если ключ не передан
             import os
-            api_key = os.getenv('OPENAI_API_KEY')
+            api_key = os.getenv('ANTHROPIC_API_KEY')
         
         if api_key:
-            self.client = openai.OpenAI(api_key=api_key)
+            self.client = anthropic.Anthropic(api_key=api_key)
         else:
             # Создаем заглушку если нет ключа
             self.client = None
-            logger.warning("OpenAI API key not provided, image analysis will be disabled")
+            logger.warning("Anthropic API key not provided, image analysis will be disabled")
     
     def analyze_floor_image(self, image_path: str, context: str = "") -> Dict:
         """
@@ -35,39 +35,56 @@ class FloorAnalyzer:
         if not self.client:
             return {
                 'success': False,
-                'error': 'OpenAI API key not configured',
+                'error': 'Anthropic API key not configured',
                 'floor_type': 'unknown',
                 'condition': 'unknown',
                 'damages': [],
                 'area_estimate': 20,
-                'recommendations': ['Требуется настройка OpenAI API'],
+                'recommendations': ['Требуется настройка Anthropic API'],
                 'cost_estimate': 0
             }
         
         try:
             # Конвертируем изображение в base64
             with open(image_path, 'rb') as image_file:
-                base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+                image_data = base64.b64encode(image_file.read()).decode('utf-8')
+            
+            # Определяем тип изображения
+            image_type = "image/jpeg"
+            if image_path.lower().endswith('.png'):
+                image_type = "image/png"
+            elif image_path.lower().endswith('.webp'):
+                image_type = "image/webp"
             
             # Создаем промпт с контекстом
             prompt = self._create_analysis_prompt(context)
             
-            # Отправляем запрос к OpenAI
-            response = self.client.chat.completions.create(
-                model="gpt-4.1-mini",
+            # Отправляем запрос к Claude
+            response = self.client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1500,
+                temperature=0.1,
                 messages=[{
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": image_type,
+                                "data": image_data
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
                     ]
-                }],
-                max_tokens=1500,
-                temperature=0.1
+                }]
             )
             
             # Парсим ответ
-            analysis_text = response.choices[0].message.content
+            analysis_text = response.content[0].text
             return self._parse_analysis_response(analysis_text)
             
         except Exception as e:
@@ -129,12 +146,20 @@ class FloorAnalyzer:
         return prompt
     
     def _parse_analysis_response(self, response_text: str) -> Dict:
-        """Парсит ответ от OpenAI"""
+        """Парсит ответ от Claude"""
         try:
-            # Пытаемся распарсить JSON
-            analysis = json.loads(response_text)
-            analysis['success'] = True
-            return analysis
+            # Пытаемся найти JSON в ответе
+            start_idx = response_text.find('{')
+            end_idx = response_text.rfind('}') + 1
+            
+            if start_idx != -1 and end_idx != -1:
+                json_str = response_text[start_idx:end_idx]
+                analysis = json.loads(json_str)
+                analysis['success'] = True
+                return analysis
+            else:
+                raise json.JSONDecodeError("No JSON found in response", response_text, 0)
+                
         except json.JSONDecodeError:
             # Если JSON не валидный, пытаемся извлечь информацию текстом
             logger.warning("Failed to parse JSON response, extracting manually")
